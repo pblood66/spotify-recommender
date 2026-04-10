@@ -1,0 +1,8 @@
+{
+  "schema": "./src/db/schema.ts",
+  "out": "./migrations",
+  "dialect": "postgresql",
+  "dbCredentials": {
+    "url": "postgresql://recommender:localpassword@localhost:5432/recommender"
+  }
+}
