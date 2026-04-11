@@ -69,32 +69,37 @@ export class SpotifyClient {
  * by the same artist cluster together in vector space.
  */
 export function trackToFeatures(track: SpotifyTrack): SpotifyAudioFeatures {
-  const pop = track.popularity / 100;
-  const releaseYear = parseInt(track.album.release_date?.slice(0, 4) ?? "2000");
-  const era = Math.max(0, Math.min(1, (releaseYear - 1950) / 80));
+  const pop = clampF(track.popularity / 100);
+  const releaseYear = parseInt(track.album?.release_date?.slice(0, 4) ?? "2000");
+  const era = clampF((releaseYear - 1950) / 80);
   const explicit = track.explicit ? 1 : 0;
-  const trackNumNorm = Math.min(track.track_number / 20, 1);
+  const trackNumNorm = clampF(track.track_number / 20);
   const artistHash =
-    (track.artists[0]?.id ?? "")
+    (track.artists?.[0]?.id ?? "")
       .split("")
       .reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) & 0xffff, 0) / 0xffff;
 
   return {
     id: track.id,
-    danceability: pop * 0.7 + era * 0.2 + artistHash * 0.1,
-    energy: pop * 0.6 + explicit * 0.3 + artistHash * 0.1,
-    key: Math.floor(artistHash * 11),
-    loudness: -60 + pop * 55,
+    danceability: clampF(pop * 0.7 + era * 0.2 + artistHash * 0.1),
+    energy: clampF(pop * 0.6 + explicit * 0.3 + artistHash * 0.1),
+    key: Math.floor(clampF(artistHash) * 11),
+    loudness: -60 + clampF(pop) * 55,
     mode: era > 0.5 ? 1 : 0,
-    speechiness: explicit * 0.3 + pop * 0.1,
-    acousticness: Math.max(0, 1 - pop * 0.7 - explicit * 0.2),
-    instrumentalness: Math.max(0, 0.5 - pop * 0.5 - explicit * 0.3),
-    liveness: trackNumNorm * 0.2 + artistHash * 0.1,
-    valence: pop * 0.5 + era * 0.3 + artistHash * 0.2,
-    tempo: 80 + pop * 100,
-    duration_ms: track.duration_ms,
+    speechiness: clampF(explicit * 0.3 + pop * 0.1),
+    acousticness: clampF(1 - pop * 0.7 - explicit * 0.2),
+    instrumentalness: clampF(0.5 - pop * 0.5 - explicit * 0.3),
+    liveness: clampF(trackNumNorm * 0.2 + artistHash * 0.1),
+    valence: clampF(pop * 0.5 + era * 0.3 + artistHash * 0.2),
+    tempo: 80 + clampF(pop) * 100,
+    duration_ms: track.duration_ms ?? 0,
     time_signature: 4,
   };
+}
+
+function clampF(v: number, min = 0, max = 1): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(min, Math.min(max, v));
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {

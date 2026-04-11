@@ -1,12 +1,15 @@
 import { Router, Response, NextFunction } from "express";
 import { recommendService } from "./recommend.service";
 import { playlistService } from "./playlist.service";
+import { ingestionService } from "./ingestion.service";
 import { PlaylistConflictError } from "../types/playlist";
 import { AuthRequest } from "./auth.middleware";
-import { IngestionService } from "./ingestion.service";
+import { db } from "../db/client";
+import { playHistory, songs } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { cacheService } from "../cache/redis";
 
 export const router = Router();
-export const ingestionService = new IngestionService();
 
 function userId(req: AuthRequest): string {
   console.log("[Router] req.user =", req.user);
@@ -69,6 +72,100 @@ router.delete("/playlists/:id", async (req: AuthRequest, res: Response, next: Ne
   try {
     await playlistService.delete(req.params.id, userId(req));
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Debug (remove before production) ────────────────────────────────────────
+
+router.get("/debug/pinecone", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { Pinecone } = await import("@pinecone-database/pinecone");
+    const { config } = await import("../config.js");
+    const pc = new Pinecone({ apiKey: config.pinecone.apiKey });
+    const index = pc.index(config.pinecone.index);
+    const stats = await index.describeIndexStats();
+
+    // Also fetch the two specific IDs that are failing
+    const testIds = req.query.ids
+      ? (req.query.ids as string).split(",")
+      : [];
+    const fetched = testIds.length > 0 ? await index.fetch(testIds) : null;
+
+    res.json({ stats, fetched });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Play history ─────────────────────────────────────────────────────────────
+
+// Record that the current user played a song.
+// Call this whenever a user plays or skips a track in your UI.
+router.post("/history", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { spotifyId, durationListenedMs, skipped } = req.body as {
+      spotifyId: string;
+      durationListenedMs?: number;
+      skipped?: boolean;
+    };
+
+    if (!spotifyId) return res.status(400).json({ error: "spotifyId is required" });
+
+    // Look up internal song ID from spotify ID
+    const [song] = await db
+      .select({ id: songs.id })
+      .from(songs)
+      .where(eq(songs.spotifyId, spotifyId))
+      .limit(1);
+
+    if (!song) {
+      return res.status(404).json({
+        error: "Song not found — ingest it first via POST /api/v1/ingest/track/:spotifyId",
+      });
+    }
+
+    await db.insert(playHistory).values({
+      userId: userId(req),
+      songId: song.id,
+      durationListenedMs: durationListenedMs ?? null,
+      skipped: skipped ?? false,
+    });
+
+    // Invalidate cached taste vector and recommendations so next request rebuilds them
+    await Promise.all([
+      cacheService.invalidateRecommendations(userId(req)),
+      cacheService.invalidateUserTasteVector(userId(req)),
+    ]);
+
+    res.status(201).json({ recorded: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get the current user's play history
+router.get("/history", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const history = await db
+      .select({
+        songId: playHistory.songId,
+        spotifyId: songs.spotifyId,
+        title: songs.title,
+        artist: songs.artist,
+        playedAt: playHistory.playedAt,
+        skipped: playHistory.skipped,
+        durationListenedMs: playHistory.durationListenedMs,
+      })
+      .from(playHistory)
+      .innerJoin(songs, eq(playHistory.songId, songs.id))
+      .where(eq(playHistory.userId, userId(req)))
+      .orderBy(playHistory.playedAt)
+      .limit(limit);
+
+    res.json({ history });
   } catch (err) {
     next(err);
   }

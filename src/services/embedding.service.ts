@@ -1,20 +1,9 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import { SpotifyAudioFeatures, SongVector } from "../types/song";
 import { cacheService } from "../cache/redis";
+import { config } from "../config";
 
-/**
- * Projects Spotify audio features into a 768-dim vector.
- *
- * In production you'd use a trained model (e.g. fine-tuned MusicBERT,
- * or a simple MLP trained on user engagement data). This baseline uses
- * a deterministic projection so the system is immediately runnable.
- *
- * The 14 raw features → tiled into 768 dims with sinusoidal position encoding,
- * then L2-normalised. Cosine similarity in Pinecone is then equivalent to
- * dot product on normalised vectors.
- */
 export function featuresToVector(features: SpotifyAudioFeatures): number[] {
-  // Normalise all 14 raw features to [0, 1]
   const raw = [
     clamp(features.danceability),
     clamp(features.energy),
@@ -35,17 +24,14 @@ export function featuresToVector(features: SpotifyAudioFeatures): number[] {
   const dim = 768;
   const vector = new Array<number>(dim);
 
-  // Tile the 14 features across 768 dims, mixing in a deterministic
-  // per-position offset so adjacent tiles aren't identical.
   for (let i = 0; i < dim; i++) {
     const base = raw[i % raw.length];
-    const offset = (i / dim) * 0.1; // small linear drift 0..0.1
+    const offset = (i / dim) * 0.1;
     vector[i] = base + offset;
   }
 
-  // L2 normalise — guaranteed safe because raw values are all finite
   const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
-  if (norm === 0) return vector.fill(1 / Math.sqrt(dim)); // degenerate fallback
+  if (norm === 0) return vector.fill(1 / Math.sqrt(dim));
   return vector.map((v) => v / norm);
 }
 
@@ -55,30 +41,39 @@ function clamp(v: number, min = 0, max = 1): number {
 }
 
 export class EmbeddingService {
-  private pinecone: Pinecone;
-  private indexName: string;
+  private _pinecone: Pinecone | null = null;
 
-  constructor() {
-    this.pinecone = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
-    this.indexName = process.env.PINECONE_INDEX ?? "songs";
+  private get pinecone(): Pinecone {
+    if (!this._pinecone) {
+      this._pinecone = new Pinecone({ apiKey: config.pinecone.apiKey });
+    }
+    return this._pinecone;
   }
 
   private get index() {
-    return this.pinecone.index(this.indexName);
+    return this.pinecone.index(config.pinecone.index);
   }
 
   async upsertSong(songVector: SongVector): Promise<void> {
-    const sample = songVector.vector.slice(0, 5);
     const hasInvalid = songVector.vector.some((v) => !Number.isFinite(v));
-    console.log(`[Embed] vector sample: ${sample}, hasInvalid: ${hasInvalid}, length: ${songVector.vector.length}`);
+    console.log(`[Embed] upserting id=${songVector.songId} length=${songVector.vector.length} hasInvalid=${hasInvalid}`);
+
+    // Pinecone rejects null/undefined metadata values
+    const metadata = {
+      title: songVector.metadata.title ?? "",
+      artist: songVector.metadata.artist ?? "",
+      energy: songVector.metadata.energy ?? 0,
+      valence: songVector.metadata.valence ?? 0,
+      tempo: songVector.metadata.tempo ?? 0,
+    };
+
     await this.index.upsert([
       {
         id: songVector.songId,
         values: songVector.vector,
-        metadata: songVector.metadata,
+        metadata,
       },
     ]);
-    // Warm the Redis cache immediately after upsert
     await cacheService.setSongVector(songVector.songId, songVector.vector);
   }
 
@@ -91,35 +86,37 @@ export class EmbeddingService {
   }
 
   async getSongVector(songId: string): Promise<number[] | null> {
-    // Cache-aside: check Redis first
     const cached = await cacheService.getSongVector(songId);
-    if (cached) return cached;
+    if (cached) {
+      console.log(`[Embed] cache hit songId=${songId}`);
+      return cached;
+    }
 
+    console.log(`[Embed] fetching from Pinecone songId=${songId}`);
     const result = await this.index.fetch([songId]);
     const record = result.records[songId];
-    if (!record?.values) return null;
+    if (!record?.values) {
+      console.log(`[Embed] not found in Pinecone songId=${songId}`);
+      return null;
+    }
 
-    // Populate cache on miss
     await cacheService.setSongVector(songId, record.values);
     return record.values;
   }
 
-  /**
-   * Compute the user's taste vector as the mean of their last N played song vectors.
-   * Cached aggressively since this is the hot path for recommendations.
-   */
-  async buildTasteVector(
-    songIds: string[],
-    userId: string
-  ): Promise<number[]> {
+  async buildTasteVector(songIds: string[], userId: string): Promise<number[]> {
     const cached = await cacheService.getUserTasteVector(userId);
-    if (cached) return cached;
+    if (cached && cached.length > 0) return cached;
+
+    console.log(`[Embed] building taste vector, songIds=`, songIds);
 
     const vectors: number[][] = [];
     for (const id of songIds.slice(-50)) {
       const v = await this.getSongVector(id);
       if (v) vectors.push(v);
     }
+
+    console.log(`[Embed] found ${vectors.length} vectors from ${songIds.length} songIds`);
 
     if (vectors.length === 0) {
       throw new Error("No song vectors found to build taste vector");

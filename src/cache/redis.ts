@@ -1,6 +1,6 @@
-import Redis from "ioredis";
 import { RecommendationResult } from "../types/song";
 import { Playlist } from "../types/playlist";
+import { getRedisClient } from "./cache";
 
 const TTL = {
   RECOMMENDATIONS: 5 * 60,    // 5 minutes — recommendations go stale quickly
@@ -10,20 +10,8 @@ const TTL = {
 };
 
 export class CacheService {
-  private client: Redis;
-
-  constructor() {
-    this.client = new Redis({
-      host: process.env.REDIS_HOST ?? "localhost",
-      port: parseInt(process.env.REDIS_PORT ?? "6379"),
-      password: process.env.REDIS_PASSWORD,
-      enableReadyCheck: true,
-      maxRetriesPerRequest: 3,
-    });
-
-    this.client.on("error", (err) => {
-      console.error("[Redis] connection error:", err);
-    });
+  private get client() {
+    return getRedisClient();
   }
 
   // ─── Recommendations ─────────────────────────────────────────────────────
@@ -61,6 +49,10 @@ export class CacheService {
 
   async setUserTasteVector(userId: string, vector: number[]): Promise<void> {
     await this.client.setex(`vec:taste:${userId}`, TTL.USER_TASTE_VECTOR, JSON.stringify(vector));
+  }
+
+  async invalidateUserTasteVector(userId: string): Promise<void> {
+    await this.client.del(`vec:taste:${userId}`);
   }
 
   // ─── Playlists ────────────────────────────────────────────────────────────
