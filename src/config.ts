@@ -47,6 +47,7 @@ function buildConfig() {
       scopes: [
         "user-read-email",
         "user-read-recently-played",
+        "user-top-read",
         "playlist-read-private",
         "playlist-modify-private",
         "playlist-modify-public",

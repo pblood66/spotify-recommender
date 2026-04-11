@@ -14,36 +14,44 @@ import { cacheService } from "../cache/redis";
  * dot product on normalised vectors.
  */
 export function featuresToVector(features: SpotifyAudioFeatures): number[] {
+  // Normalise all 14 raw features to [0, 1]
   const raw = [
-    features.danceability,
-    features.energy,
-    features.key / 11,            // normalise 0-11 → 0-1
-    (features.loudness + 60) / 60, // normalise -60..0 dB
-    features.mode,
-    features.speechiness,
-    features.acousticness,
-    features.instrumentalness,
-    features.liveness,
-    features.valence,
-    features.tempo / 250,          // normalise ~40-250 BPM
-    features.duration_ms / 600_000,
-    features.time_signature / 7,
-    0,                             // padding to 14 dims
+    clamp(features.danceability),
+    clamp(features.energy),
+    clamp(features.key / 11),
+    clamp((features.loudness + 60) / 60),
+    clamp(features.mode),
+    clamp(features.speechiness),
+    clamp(features.acousticness),
+    clamp(features.instrumentalness),
+    clamp(features.liveness),
+    clamp(features.valence),
+    clamp(features.tempo / 250),
+    clamp(features.duration_ms / 600_000),
+    clamp(features.time_signature / 7),
+    0,
   ];
 
   const dim = 768;
   const vector = new Array<number>(dim);
 
+  // Tile the 14 features across 768 dims, mixing in a deterministic
+  // per-position offset so adjacent tiles aren't identical.
   for (let i = 0; i < dim; i++) {
-    const featureIdx = i % raw.length;
-    // Sinusoidal position encoding mixed with feature value
-    const pos = Math.sin((i / dim) * Math.PI * 2);
-    vector[i] = raw[featureIdx] * Math.cos(pos) + pos * 0.01;
+    const base = raw[i % raw.length];
+    const offset = (i / dim) * 0.1; // small linear drift 0..0.1
+    vector[i] = base + offset;
   }
 
-  // L2 normalise
+  // L2 normalise — guaranteed safe because raw values are all finite
   const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0));
+  if (norm === 0) return vector.fill(1 / Math.sqrt(dim)); // degenerate fallback
   return vector.map((v) => v / norm);
+}
+
+function clamp(v: number, min = 0, max = 1): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(min, Math.min(max, v));
 }
 
 export class EmbeddingService {
@@ -60,6 +68,9 @@ export class EmbeddingService {
   }
 
   async upsertSong(songVector: SongVector): Promise<void> {
+    const sample = songVector.vector.slice(0, 5);
+    const hasInvalid = songVector.vector.some((v) => !Number.isFinite(v));
+    console.log(`[Embed] vector sample: ${sample}, hasInvalid: ${hasInvalid}, length: ${songVector.vector.length}`);
     await this.index.upsert([
       {
         id: songVector.songId,

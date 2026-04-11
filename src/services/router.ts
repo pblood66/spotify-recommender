@@ -3,8 +3,10 @@ import { recommendService } from "./recommend.service";
 import { playlistService } from "./playlist.service";
 import { PlaylistConflictError } from "../types/playlist";
 import { AuthRequest } from "./auth.middleware";
+import { IngestionService } from "./ingestion.service";
 
 export const router = Router();
+export const ingestionService = new IngestionService();
 
 function userId(req: AuthRequest): string {
   console.log("[Router] req.user =", req.user);
@@ -67,6 +69,51 @@ router.delete("/playlists/:id", async (req: AuthRequest, res: Response, next: Ne
   try {
     await playlistService.delete(req.params.id, userId(req));
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Ingestion ────────────────────────────────────────────────────────────────
+
+// Ingest a single track by Spotify track ID
+router.post("/ingest/track/:spotifyId", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const song = await ingestionService.ingestTrack(req.params.spotifyId, userId(req));
+    res.status(201).json({ song });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Ingest results of a search query
+router.post("/ingest/search", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { query, limit } = req.body as { query: string; limit?: number };
+    if (!query) return res.status(400).json({ error: "query is required" });
+    const songs = await ingestionService.ingestSearch(query, userId(req), limit);
+    res.status(201).json({ count: songs.length, songs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Import user's recently played tracks from Spotify
+router.post("/ingest/recently-played", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const songs = await ingestionService.importRecentlyPlayed(userId(req));
+    res.status(201).json({ count: songs.length, songs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Import user's top tracks from Spotify
+router.post("/ingest/top-tracks", async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { timeRange } = req.body as { timeRange?: "short_term" | "medium_term" | "long_term" };
+    const songs = await ingestionService.importTopTracks(userId(req), timeRange);
+    res.status(201).json({ count: songs.length, songs });
   } catch (err) {
     next(err);
   }
