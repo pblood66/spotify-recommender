@@ -120,7 +120,7 @@ export async function handleSpotifyCallback(
     { expiresIn: config.jwt.expiresIn as SignOptions["expiresIn"] }
   );
 
-  res.json({ token: appToken, user: { id: user.id, displayName: user.displayName, email: user.email } });
+  res.redirect(`http://localhost:5173/?token=${appToken}`);
 }
 
 // ─── Token refresh — called automatically when Spotify returns 401 ────────────
