@@ -133,5 +133,5 @@ Vector similarity produces more nuanced and personalized recommendations compare
 
 ```bash
 git clone https://github.com/yourusername/spotify-song-recommender.git
-cd spotify-song-recommender
+cd groovy
 npm install
