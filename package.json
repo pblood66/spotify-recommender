@@ -8,7 +8,8 @@
     "start": "node dist/bootstrap.js",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "dev:client": "vite"
   },
   "dependencies": {
     "@pinecone-database/pinecone": "^2.2.2",

@@ -49,11 +49,10 @@ export function requireAuth(
   next();
 }
 
-// ─── OAuth callback handler — exchanges code for tokens, upserts user ─────────
-
 export async function handleSpotifyCallback(
   req: Request,
-  res: Response
+  res: Response,
+  redirectUri?: string
 ): Promise<void> {
   const code = req.query.code as string | undefined;
   if (!code) {
@@ -61,17 +60,16 @@ export async function handleSpotifyCallback(
     return;
   }
 
-  // Exchange code for tokens
+
   let tokenData: SpotifyTokenResponse;
   try {
-    tokenData = await exchangeCodeForTokens(code);
+    tokenData = await exchangeCodeForTokens(code, redirectUri ?? config.spotify.redirectUri);
   } catch (err) {
     console.error("[Auth] token exchange failed:", err);
     res.status(502).json({ error: "Failed to exchange token with Spotify" });
     return;
   }
 
-  // Fetch user profile from Spotify
   let profile: { id: string; display_name: string; email: string };
   try {
     const profileRes = await fetch("https://api.spotify.com/v1/me", {
@@ -87,7 +85,6 @@ export async function handleSpotifyCallback(
 
   const tokenExpiresAt = new Date(Date.now() + tokenData.expires_in * 1000);
 
-  // Upsert user — insert on first login, update tokens on subsequent logins
   const [user] = await db
     .insert(users)
     .values({
@@ -109,7 +106,6 @@ export async function handleSpotifyCallback(
     })
     .returning();
 
-  // Issue our own JWT so clients don't need to pass Spotify tokens
   const appToken = jwt.sign(
     {
       sub: user.id,
@@ -120,10 +116,9 @@ export async function handleSpotifyCallback(
     { expiresIn: config.jwt.expiresIn as SignOptions["expiresIn"] }
   );
 
-  res.redirect(`http://localhost:5173/?token=${appToken}`);
+  res.json({ token: appToken, user: { id: user.id, displayName: user.displayName, email: user.email } });
 }
 
-// ─── Token refresh — called automatically when Spotify returns 401 ────────────
 
 export async function refreshSpotifyToken(userId: string): Promise<string> {
   const [user] = await db
@@ -171,8 +166,6 @@ export async function refreshSpotifyToken(userId: string): Promise<string> {
   return data.access_token;
 }
 
-// ─── Helper: get a valid Spotify access token, refreshing if needed ───────────
-
 export async function getValidSpotifyToken(userId: string): Promise<string> {
   const [user] = await db
     .select({
@@ -196,13 +189,12 @@ export async function getValidSpotifyToken(userId: string): Promise<string> {
   return user.accessToken;
 }
 
-// ─── Private helpers ──────────────────────────────────────────────────────────
 
-async function exchangeCodeForTokens(code: string): Promise<SpotifyTokenResponse> {
+async function exchangeCodeForTokens(code: string, redirectUri: string): Promise<SpotifyTokenResponse> {
   const params = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    redirect_uri: config.spotify.redirectUri,
+    redirect_uri: redirectUri,
   });
 
   const res = await fetch("https://accounts.spotify.com/api/token", {

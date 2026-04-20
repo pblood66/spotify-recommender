@@ -6,17 +6,14 @@ export default function Login() {
       <div className={styles.card}>
         <div className={styles.logo}>
           <span className={styles.wave}>~</span>
-          <span className={styles.name}>wavefinder</span>
+          <span className={styles.name}>Groovy</span>
         </div>
         <p className={styles.tagline}>
-          music that moves with you
+          Spotify Recommendations
         </p>
         <a href="/api/v1/auth/login" className={styles.btn}>
           connect spotify
         </a>
-        <p className={styles.note}>
-          we'll never post or modify anything without your action
-        </p>
       </div>
     </div>
   );

@@ -70,7 +70,7 @@ export default function Dashboard() {
       <header className={styles.header}>
         <div className={styles.logo}>
           <span className={styles.wave}>~</span>
-          <span className={styles.name}>wavefinder</span>
+          <span className={styles.name}>groovy</span>
         </div>
         <nav className={styles.nav}>
           {(["recs", "ingest", "history"] as Tab[]).map((t) => (

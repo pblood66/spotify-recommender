@@ -12,10 +12,6 @@ export class IngestionService {
     return new SpotifyClient(token);
   }
 
-  // ─── Ingest a single track by Spotify ID ──────────────────────────────────
-  // Only used when the caller has just a track ID and no track object.
-  // Avoid if you already have a SpotifyTrack — use ingestTrackObject directly.
-
   async ingestTrack(spotifyId: string, userId: string): Promise<Song> {
     const existing = await db
       .select()
@@ -32,8 +28,6 @@ export class IngestionService {
     const track = await client.getTrack(spotifyId);
     return this.ingestTrackObject(track);
   }
-
-  // ─── Ingest a list of full track objects (no extra API calls needed) ───────
 
   async ingestTrackObjects(tracks: SpotifyTrack[]): Promise<Song[]> {
     // Dedupe by spotifyId
@@ -65,7 +59,6 @@ export class IngestionService {
     return results;
   }
 
-  // ─── Core ingestion logic ─────────────────────────────────────────────────
 
   private async ingestTrackObject(track: SpotifyTrack): Promise<Song> {
     const features = trackToFeatures(track);
@@ -106,8 +99,6 @@ export class IngestionService {
     return song as Song;
   }
 
-  // ─── Import recently played — track objects come back directly ────────────
-
   async importRecentlyPlayed(userId: string): Promise<Song[]> {
     const client = await this.spotifyClient(userId);
     const tracks = await client.getRecentlyPlayed(50);
@@ -115,7 +106,6 @@ export class IngestionService {
     return this.ingestTrackObjects(tracks);
   }
 
-  // ─── Import top tracks — track objects come back directly ─────────────────
 
   async importTopTracks(
     userId: string,
@@ -127,10 +117,9 @@ export class IngestionService {
     return this.ingestTrackObjects(tracks);
   }
 
-  // ─── Search and ingest — track objects come back directly ─────────────────
-
   async ingestSearch(query: string, userId: string, limit = 20): Promise<Song[]> {
     const client = await this.spotifyClient(userId);
+    console.log("Found client, searching Spotify for", query);
     const tracks = await client.searchTracks(query, limit);
     console.log(`[Ingest] ingesting ${tracks.length} tracks for query "${query}"`);
     return this.ingestTrackObjects(tracks);

@@ -10,8 +10,6 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
-// ─── Users ────────────────────────────────────────────────────────────────────
-
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   spotifyId: text("spotify_id").notNull().unique(),
@@ -24,7 +22,6 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// ─── Songs (local cache of Spotify data) ──────────────────────────────────────
 
 export const songs = pgTable(
   "songs",
@@ -47,7 +44,6 @@ export const songs = pgTable(
   })
 );
 
-// ─── Playlists ────────────────────────────────────────────────────────────────
 
 export const playlists = pgTable(
   "playlists",
@@ -69,8 +65,6 @@ export const playlists = pgTable(
     userIdIdx: index("playlists_user_id_idx").on(t.userId),
   })
 );
-
-// ─── Play history (used to build taste vector) ────────────────────────────────
 
 export const playHistory = pgTable(
   "play_history",

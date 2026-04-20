@@ -36,9 +36,15 @@ export class SpotifyClient {
     return this.fetch<SpotifyTrack>(`/tracks/${spotifyId}`);
   }
 
-  async searchTracks(query: string, limit = 20): Promise<SpotifyTrack[]> {
+  async searchTracks(query: string, limit = 10): Promise<SpotifyTrack[]> {
+    const params = new URLSearchParams({
+      q: query,
+      type: "track",
+      limit: String(limit),
+      market: "US",
+    });
     const res = await this.fetch<{ tracks: { items: SpotifyTrack[] } }>(
-      `/search?q=${encodeURIComponent(query)}&type=track&limit=${limit}`
+      `/search?${params.toString()}`
     );
     return res.tracks.items;
   }

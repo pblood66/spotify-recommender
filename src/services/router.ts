@@ -17,8 +17,6 @@ function userId(req: AuthRequest): string {
   return req.user.id;
 }
 
-// ─── Recommendations ──────────────────────────────────────────────────────────
-
 router.get("/recommendations", async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
@@ -28,8 +26,6 @@ router.get("/recommendations", async (req: AuthRequest, res: Response, next: Nex
     next(err);
   }
 });
-
-// ─── Playlists ────────────────────────────────────────────────────────────────
 
 router.post("/playlists", async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -77,32 +73,7 @@ router.delete("/playlists/:id", async (req: AuthRequest, res: Response, next: Ne
   }
 });
 
-// ─── Debug (remove before production) ────────────────────────────────────────
 
-router.get("/debug/pinecone", async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { Pinecone } = await import("@pinecone-database/pinecone");
-    const { config } = await import("../config.js");
-    const pc = new Pinecone({ apiKey: config.pinecone.apiKey });
-    const index = pc.index(config.pinecone.index);
-    const stats = await index.describeIndexStats();
-
-    // Also fetch the two specific IDs that are failing
-    const testIds = req.query.ids
-      ? (req.query.ids as string).split(",")
-      : [];
-    const fetched = testIds.length > 0 ? await index.fetch(testIds) : null;
-
-    res.json({ stats, fetched });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ─── Play history ─────────────────────────────────────────────────────────────
-
-// Record that the current user played a song.
-// Call this whenever a user plays or skips a track in your UI.
 router.post("/history", async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { spotifyId, durationListenedMs, skipped } = req.body as {
@@ -171,7 +142,6 @@ router.get("/history", async (req: AuthRequest, res: Response, next: NextFunctio
   }
 });
 
-// ─── Ingestion ────────────────────────────────────────────────────────────────
 
 // Ingest a single track by Spotify track ID
 router.post("/ingest/track/:spotifyId", async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -188,7 +158,7 @@ router.post("/ingest/search", async (req: AuthRequest, res: Response, next: Next
   try {
     const { query, limit } = req.body as { query: string; limit?: number };
     if (!query) return res.status(400).json({ error: "query is required" });
-    const songs = await ingestionService.ingestSearch(query, userId(req), limit);
+    const songs = await ingestionService.ingestSearch(query, userId(req), 10);
     res.status(201).json({ count: songs.length, songs });
   } catch (err) {
     next(err);
@@ -215,8 +185,6 @@ router.post("/ingest/top-tracks", async (req: AuthRequest, res: Response, next: 
     next(err);
   }
 });
-
-// ─── Health ───────────────────────────────────────────────────────────────────
 
 router.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
